@@ -2,7 +2,9 @@ import os
 import requests
 import json
 import random
-from datetime import datetime
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+import re
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
@@ -30,10 +32,7 @@ PINNED_MESSAGE = "We don't just repost news. We compare what was promised vs wha
 
 def pin_message():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHANNEL_ID,
-        "text": PINNED_MESSAGE
-    }
+    payload = {"chat_id": CHANNEL_ID, "text": PINNED_MESSAGE}
     r = requests.post(url, json=payload)
     if r.status_code == 200:
         msg_id = r.json()["result"]["message_id"]
@@ -43,50 +42,97 @@ def pin_message():
     else:
         print(f"Pin error: {r.text}")
 
+def parse_rss():
+    """Парсит все RSS-ленты и возвращает список новостей с датами."""
+    try:
+        with open("rss_sources.json", "r") as f:
+            sources = json.load(f)["sources"]
+    except:
+        print("rss_sources.json not found. Using Groq without real news.")
+        return []
+
+    all_news = []
+    for source in sources:
+        try:
+            resp = requests.get(source["url"], timeout=10)
+            root = ET.fromstring(resp.content)
+            for item in root.findall(".//item"):
+                title = item.find("title").text if item.find("title") is not None else ""
+                link = item.find("link").text if item.find("link") is not None else ""
+                desc = item.find("description").text if item.find("description") is not None else ""
+                pub_date = item.find("pubDate").text if item.find("pubDate") is not None else ""
+                all_news.append({
+                    "title": title,
+                    "link": link,
+                    "description": desc,
+                    "pub_date": pub_date,
+                    "source": source["name"],
+                    "topic": source["topic"]
+                })
+        except Exception as e:
+            print(f"Failed to parse {source['name']}: {e}")
+    return all_news
+
+def filter_events(news_list, post_type):
+    """Фильтрует новости: upcoming (3-7 days) или recent (0-2 days)."""
+    today = datetime.utcnow()
+    filtered = []
+    for item in news_list:
+        try:
+            pub_date = datetime.strptime(item["pub_date"], "%a, %d %b %Y %H:%M:%S %z")
+            pub_date = pub_date.replace(tzinfo=None)
+            days_diff = (pub_date - today).days
+            if post_type == "before" and 3 <= days_diff <= 7:
+                filtered.append(item)
+            elif post_type == "after" and -2 <= days_diff <= 0:
+                filtered.append(item)
+        except:
+            continue
+    return filtered
+
 def get_post_type():
     today = datetime.utcnow()
-    if today.day % 2 == 0:
-        return "before"
-    else:
-        return "after"
+    return "before" if today.day % 2 == 0 else "after"
 
-def generate_post(post_type):
+def generate_post(post_type, real_news=None):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
+    if real_news and len(real_news) > 0:
+        news_text = random.choice(real_news)
+        real_context = f"Real news item: {news_text['title']}. Source: {news_text['source']}. Link: {news_text['link']}. Description: {news_text['description'][:300]}"
+    else:
+        real_context = "No real news found from RSS. Use your own knowledge but DO NOT invent."
+
     if post_type == "before":
         cta = random.choice(CALL_TO_ACTIONS_BEFORE)
         system_prompt = f"""You are the editor of '@AlmostHereEN'.
-Find a REAL upcoming event in tech, science, or movies happening in 3–7 days.
+{real_context}
+Write a punchy preview post (600–900 chars) about this upcoming event.
 Rules:
-- Topics ONLY: tech (gadgets, software, AI), science (space, medicine, discoveries), movies (premieres, trailers).
-- Use ONLY real events from: TechCrunch, The Verge, Ars Technica, Nature, BBC, Reuters, NASA, SpaceX, Apple, Tesla, IMDb, Variety.
-- Do NOT invent events. If you can't find one — return "No suitable event."
-- Write a punchy preview (600–900 chars). Style: smart friend telling you what to watch for. No hype.
+- Topics ONLY: tech, science, movies.
+- Style: smart friend telling you what to watch for. No hype.
 - Structure: opening line → what was promised → witty image → source → ONE call to action: «{cta}» → signature: «We'll check. Almost here.»
 - English only."""
-        user_prompt = "Find a REAL upcoming event in tech/science/movies happening in 3–7 days. Preview it."
     else:
         cta = random.choice(CALL_TO_ACTIONS_AFTER)
         system_prompt = f"""You are the editor of '@AlmostHereEN'.
-Find a REAL event in tech, science, or movies that happened TODAY or YESTERDAY.
+{real_context}
+Write a reality-check post (600–900 chars) about this recent event.
 Rules:
-- Topics ONLY: tech (gadgets, software, AI), science (space, medicine, discoveries), movies (premieres, trailers).
-- Use ONLY real events from: TechCrunch, The Verge, Ars Technica, Nature, BBC, Reuters, NASA, SpaceX, Apple, Tesla, IMDb, Variety.
-- Do NOT invent events. If you can't find one — return "No suitable event."
-- Write a reality-check post (600–900 chars). Compare what was promised vs what actually happened. Be honest — if it flopped, say so.
+- Topics ONLY: tech, science, movies.
+- Style: compare what was promised vs what actually happened. Be honest.
 - Structure: what was promised → what actually happened → witty observation → source → ONE call to action: «{cta}» → signature: «Promised vs checked. Almost here.»
 - English only."""
-        user_prompt = "Find a REAL event in tech/science/movies that happened today or yesterday. Compare expectations vs reality."
 
     data = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": "Write the post based on the provided news item."}
         ],
         "temperature": 0.5,
         "max_tokens": 1000
@@ -97,8 +143,8 @@ Rules:
         raise Exception(f"Groq error: {response.text}")
     content = response.json()["choices"][0]["message"]["content"].strip()
 
-    if not content or len(content) < 50 or "no suitable" in content.lower():
-        print(f"No suitable {'preview' if post_type == 'before' else 'follow-up'} event. Post not published.")
+    if not content or len(content) < 50:
+        print("No suitable post generated.")
         return None
 
     if post_type == "before":
@@ -124,9 +170,12 @@ def send_to_telegram(text):
 
 if __name__ == "__main__":
     pin_message()
+    all_news = parse_rss()
     post_type = get_post_type()
     print(f"Post type: {post_type}")
-    post = generate_post(post_type)
+    real_events = filter_events(all_news, post_type)
+    print(f"Found {len(real_events)} real events from RSS.")
+    post = generate_post(post_type, real_events)
     if post is None:
         print("No post published.")
     else:
