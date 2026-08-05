@@ -1,0 +1,44 @@
+{
+    "sources": [
+        {
+            "name": "TechCrunch",
+            "url": "https://techcrunch.com/feed/",
+            "topic": "tech"
+        },
+        {
+            "name": "The Verge",
+            "url": "https://www.theverge.com/rss/index.xml",
+            "topic": "tech"
+        },
+        {
+            "name": "Ars Technica",
+            "url": "https://feeds.arstechnica.com/arstechnica/index",
+            "topic": "tech"
+        },
+        {
+            "name": "NASA Breaking News",
+            "url": "https://www.nasa.gov/news-release/feed/",
+            "topic": "science"
+        },
+        {
+            "name": "Nature Latest Research",
+            "url": "https://www.nature.com/nature.rss",
+            "topic": "science"
+        },
+        {
+            "name": "BBC News Technology",
+            "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+            "topic": "tech"
+        },
+        {
+            "name": "Variety Film News",
+            "url": "https://variety.com/feed/",
+            "topic": "movies"
+        },
+        {
+            "name": "Space.com",
+            "url": "https://www.space.com/feeds/all",
+            "topic": "science"
+        }
+    ]
+}
