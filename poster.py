@@ -2,49 +2,66 @@ import os
 import requests
 import json
 import random
+from datetime import datetime, timedelta
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
-CALL_TO_ACTIONS = [
-    "Will it live up to the hype? Check back and see.",
+CALL_TO_ACTIONS_BEFORE = [
+    "Will it live up to the hype? Check back soon.",
     "What do you think — overpromised or underdelivered?",
     "Would you buy this? Comment below.",
     "Send this to someone who's waiting for it.",
     "Subscribe so you don't miss the follow-up.",
-    "Bookmark this post and come back later.",
     "Want more previews like this? Like and share."
 ]
 
-def generate_post():
+CALL_TO_ACTIONS_AFTER = [
+    "Did it live up to the hype? Comment your thoughts.",
+    "Was it worth the wait?",
+    "Did you expect more? Tell us below.",
+    "Share this with someone who was waiting too.",
+    "Want more reality checks? Subscribe.",
+    "Like if you were surprised. Share if you weren't."
+]
+
+def get_post_type():
+    today = datetime.utcnow()
+    if today.day % 2 == 0:
+        return "before"
+    else:
+        return "after"
+
+def generate_post(post_type):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    cta = random.choice(CALL_TO_ACTIONS)
-
-    system_prompt = f"""You are the editor of the Telegram channel '@AlmostHereEN'.
-Your job: find an upcoming event (product launch, movie premiere, scientific experiment, tech announcement) that is expected to happen in 3–7 days.
+    if post_type == "before":
+        cta = random.choice(CALL_TO_ACTIONS_BEFORE)
+        system_prompt = f"""You are the editor of '@AlmostHereEN'.
+Find a REAL upcoming event happening in 3–7 days (product launch, movie premiere, tech announcement, scientific experiment).
 Rules:
-- Use ONLY real, verifiable upcoming events from authoritative sources (TechCrunch, The Verge, Ars Technica, Nature, BBC, Reuters, NASA, SpaceX, Apple, Tesla).
-- Do NOT invent events, products, or scientists.
-- If you cannot find a real event — return "No suitable event found."
-- Write a short, punchy post (600–900 characters).
-- Style: simple words, as if a smart friend is telling you what to watch for. No hype, no clickbait.
-- Structure:
-  1. An opening line that creates anticipation (what's coming, when).
-  2. What is expected, why it matters.
-  3. A short, witty image or comparison.
-  4. Source (publication name, date, link if possible).
-  5. ONE call to action: «{cta}»
-  6. Signature: «Stay tuned. Almost here.»
-- Language: English only.
-- Main criteria: 'Would someone forward this to a friend?'"""
-
-    user_prompt = "Find a REAL upcoming event happening in 3–7 days from a credible source. Preview it for the Almost Here channel."
+- Use ONLY real events from: TechCrunch, The Verge, Ars Technica, Nature, BBC, Reuters, NASA, SpaceX, Apple, Tesla.
+- Do NOT invent events. If you can't find one — return "No suitable event."
+- Write a short, punchy preview (600–900 chars). Style: smart friend telling you what to watch for. No hype.
+- Structure: opening line with date/days left → what's expected → witty image → source → ONE call to action: «{cta}» → signature: «Stay tuned. Almost here.»
+- English only."""
+        user_prompt = "Find a REAL upcoming event happening in 3–7 days. Preview it."
+    else:
+        cta = random.choice(CALL_TO_ACTIONS_AFTER)
+        system_prompt = f"""You are the editor of '@AlmostHereEN'.
+Find a REAL event that happened TODAY or YESTERDAY (product launch, movie premiere, tech announcement, scientific result).
+Rules:
+- Use ONLY real events from: TechCrunch, The Verge, Ars Technica, Nature, BBC, Reuters, NASA, SpaceX, Apple, Tesla.
+- Do NOT invent events. If you can't find one — return "No suitable event."
+- Write a short reality-check post (600–900 chars). Compare what was promised vs what actually happened. Be honest — if it flopped, say so.
+- Structure: what was expected → what actually happened → witty observation → source → ONE call to action: «{cta}» → signature: «Reality checked. Almost here.»
+- English only."""
+        user_prompt = "Find a REAL event that happened today or yesterday. Compare expectations vs reality."
 
     data = {
         "model": "llama-3.3-70b-versatile",
@@ -61,12 +78,17 @@ Rules:
         raise Exception(f"Groq error: {response.text}")
     content = response.json()["choices"][0]["message"]["content"].strip()
 
-    if not content or len(content) < 50:
-        print("No suitable event. Post not published.")
+    if not content or len(content) < 50 or "no suitable" in content.lower():
+        print(f"No suitable {'preview' if post_type == 'before' else 'follow-up'} event. Post not published.")
         return None
 
-    if not content.endswith("Almost here."):
-        content = content.rstrip() + "\n\nStay tuned. Almost here."
+    if post_type == "before":
+        if not content.endswith("Almost here."):
+            content = content.rstrip() + "\n\nStay tuned. Almost here."
+    else:
+        if not content.endswith("Almost here."):
+            content = content.rstrip() + "\n\nReality checked. Almost here."
+
     return content
 
 def send_to_telegram(text):
@@ -82,9 +104,11 @@ def send_to_telegram(text):
         raise Exception(f"Telegram error: {r.text}")
 
 if __name__ == "__main__":
-    post = generate_post()
+    post_type = get_post_type()
+    print(f"Post type: {post_type}")
+    post = generate_post(post_type)
     if post is None:
-        print("Post not published: no verified upcoming event.")
+        print("No post published.")
     else:
         print("Generated post:\n", post)
         send_to_telegram(post)
