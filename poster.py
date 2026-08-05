@@ -42,7 +42,7 @@ Rules:
   5. ONE call to action: «{cta}»
   6. Signature: «Stay tuned. Almost here.»
 - Language: English only.
-- Main criteria: "Would someone forward this to a friend?""""
+- Main criteria: 'Would someone forward this to a friend?'"""
 
     user_prompt = "Find a REAL upcoming event happening in 3–7 days from a credible source. Preview it for the Almost Here channel."
 
