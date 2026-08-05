@@ -26,7 +26,7 @@ CALL_TO_ACTIONS_AFTER = [
     "Like if you were surprised. Share if you weren't."
 ]
 
-PINNED_MESSAGE = "We don't just repost news. We compare what was promised vs what actually happened. Tech, science, movies. Every day at 18:00 MSK."
+PINNED_MESSAGE = "We don't just repost news. We compare what was promised vs what actually happened. Tech, science, movies. Daily."
 
 def pin_message():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -66,7 +66,7 @@ Rules:
 - Use ONLY real events from: TechCrunch, The Verge, Ars Technica, Nature, BBC, Reuters, NASA, SpaceX, Apple, Tesla, IMDb, Variety.
 - Do NOT invent events. If you can't find one — return "No suitable event."
 - Write a punchy preview (600–900 chars). Style: smart friend telling you what to watch for. No hype.
-- Structure: opening line with date/days left → what's expected → witty image → source → ONE call to action: «{cta}» → signature: «Stay tuned. Almost here.»
+- Structure: opening line → what was promised → witty image → source → ONE call to action: «{cta}» → signature: «We'll check. Almost here.»
 - English only."""
         user_prompt = "Find a REAL upcoming event in tech/science/movies happening in 3–7 days. Preview it."
     else:
@@ -78,7 +78,7 @@ Rules:
 - Use ONLY real events from: TechCrunch, The Verge, Ars Technica, Nature, BBC, Reuters, NASA, SpaceX, Apple, Tesla, IMDb, Variety.
 - Do NOT invent events. If you can't find one — return "No suitable event."
 - Write a reality-check post (600–900 chars). Compare what was promised vs what actually happened. Be honest — if it flopped, say so.
-- Structure: what was expected → what actually happened → witty observation → source → ONE call to action: «{cta}» → signature: «Reality checked. Almost here.»
+- Structure: what was promised → what actually happened → witty observation → source → ONE call to action: «{cta}» → signature: «Promised vs checked. Almost here.»
 - English only."""
         user_prompt = "Find a REAL event in tech/science/movies that happened today or yesterday. Compare expectations vs reality."
 
@@ -103,10 +103,10 @@ Rules:
 
     if post_type == "before":
         if not content.endswith("Almost here."):
-            content = content.rstrip() + "\n\nStay tuned. Almost here."
+            content = content.rstrip() + "\n\nWe'll check. Almost here."
     else:
         if not content.endswith("Almost here."):
-            content = content.rstrip() + "\n\nReality checked. Almost here."
+            content = content.rstrip() + "\n\nPromised vs checked. Almost here."
 
     return content
 
