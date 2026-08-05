@@ -2,7 +2,7 @@ name: Daily Post to AlmostHereEN
 
 on:
   schedule:
-        - cron: '0 15 * * *'    # 9:00 UTC (12:00 MSK) — позже сменим на другое время
+    - cron: '0 15 * * *'
   workflow_dispatch:
 
 jobs:
