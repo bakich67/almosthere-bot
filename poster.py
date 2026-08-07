@@ -114,17 +114,32 @@ Write a punchy preview post (600–900 chars) about this upcoming event.
 Rules:
 - Topics ONLY: tech, science, movies.
 - Style: smart friend telling you what to watch for. No hype.
-- Structure: opening line → what was promised → witty image → source → ONE call to action: «{cta}» → signature: «We'll check. Almost here.»
+- Structure: opening line → what is promised and why it matters → witty image → source → ONE call to action: «{cta}» → signature: «We'll check. Almost here.»
 - English only."""
     else:
         cta = random.choice(CALL_TO_ACTIONS_AFTER)
         system_prompt = f"""You are the editor of '@AlmostHereEN'.
 {real_context}
-Write a reality-check post (600–900 chars) about this recent event.
+Write a reality-check post (600–900 chars) about this recent event. Use this EXACT format:
+
+Promised: [what was promised, one sharp sentence]
+Got: [what actually happened, one sharp sentence]
+Verdict: [Justified / Flop / Unclear] – [short, punchy advice like 'wait for next gen', 'buy now', 'ignore completely', 'worth a look']
+Witty observation: [one ironic or vivid comparison]
+
+Example:
+Promised: a revolutionary electric pickup that changes the game.
+Got: an overpriced, unfinished product that underwhelmed.
+Verdict: Flop – wait for the next generation.
+Witty observation: The revolution will have to wait for a software update.
+Source: TechCrunch
+{cta}
+
+Promised vs checked. Almost here.
+
 Rules:
 - Topics ONLY: tech, science, movies.
-- Style: compare what was promised vs what actually happened. Be honest.
-- Structure: what was promised → what actually happened → witty observation → source → ONE call to action: «{cta}» → signature: «Promised vs checked. Almost here.»
+- Be honest, harsh if needed, no hype.
 - English only."""
 
     data = {
