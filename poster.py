@@ -3,7 +3,7 @@ import requests
 import json
 import random
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -43,12 +43,11 @@ def pin_message():
         print(f"Pin error: {r.text}")
 
 def parse_rss():
-    """Парсит все RSS-ленты и возвращает список новостей с датами."""
     try:
         with open("rss_sources.json", "r") as f:
             sources = json.load(f)["sources"]
     except:
-        print("rss_sources.json not found. Using Groq without real news.")
+        print("rss_sources.json not found.")
         return []
 
     all_news = []
@@ -59,7 +58,8 @@ def parse_rss():
             for item in root.findall(".//item"):
                 title = item.find("title").text if item.find("title") is not None else ""
                 link = item.find("link").text if item.find("link") is not None else ""
-                desc = item.find("description").text if item.find("description") is not None else ""
+                desc_elem = item.find("description")
+                desc = desc_elem.text if desc_elem is not None and desc_elem.text is not None else ""
                 pub_date = item.find("pubDate").text if item.find("pubDate") is not None else ""
                 all_news.append({
                     "title": title,
@@ -74,7 +74,6 @@ def parse_rss():
     return all_news
 
 def filter_events(news_list, post_type):
-    """Фильтрует новости: upcoming (3-7 days) или recent (0-2 days)."""
     today = datetime.utcnow()
     filtered = []
     for item in news_list:
@@ -105,7 +104,7 @@ def generate_post(post_type, real_news=None):
         news_text = random.choice(real_news)
         real_context = f"Real news item: {news_text['title']}. Source: {news_text['source']}. Link: {news_text['link']}. Description: {news_text['description'][:300]}"
     else:
-        real_context = "No real news found from RSS. Use your own knowledge but DO NOT invent."
+        real_context = "No real news found from RSS. Do NOT invent. Return 'No suitable event.'"
 
     if post_type == "before":
         cta = random.choice(CALL_TO_ACTIONS_BEFORE)
@@ -143,7 +142,7 @@ Rules:
         raise Exception(f"Groq error: {response.text}")
     content = response.json()["choices"][0]["message"]["content"].strip()
 
-    if not content or len(content) < 50:
+    if not content or len(content) < 50 or "no suitable" in content.lower():
         print("No suitable post generated.")
         return None
 
@@ -169,16 +168,19 @@ def send_to_telegram(text):
         raise Exception(f"Telegram error: {r.text}")
 
 if __name__ == "__main__":
-    pin_message()
-    all_news = parse_rss()
-    post_type = get_post_type()
-    print(f"Post type: {post_type}")
-    real_events = filter_events(all_news, post_type)
-    print(f"Found {len(real_events)} real events from RSS.")
-    post = generate_post(post_type, real_events)
-    if post is None:
-        print("No post published.")
-    else:
-        print("Generated post:\n", post)
-        send_to_telegram(post)
-        print("Post sent to channel")
+    try:
+        pin_message()
+        all_news = parse_rss()
+        post_type = get_post_type()
+        print(f"Post type: {post_type}")
+        real_events = filter_events(all_news, post_type)
+        print(f"Found {len(real_events)} real events from RSS.")
+        post = generate_post(post_type, real_events)
+        if post is None:
+            print("No post published.")
+        else:
+            print("Generated post:\n", post)
+            send_to_telegram(post)
+            print("Post sent to channel")
+    except Exception as e:
+        print(f"Critical error: {e}")
