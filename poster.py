@@ -171,12 +171,9 @@ End with: Promised vs checked. Almost here."""
     if not content or len(content) < 50:
         return None
 
-    # Обрезаем всё, что после финальной подписи
-    if "Almost here." in content:
-        content = content.split("Almost here.")[0].rstrip() + "\n\nPromised vs checked. Almost here."
-    else:
-        content = content.rstrip() + "\n\nPromised vs checked. Almost here."
-
+    # Удаляем любые вариации конечной подписи, чтобы не задваивать
+    content = re.sub(r'\n*(Promised vs checked\.\s*)?Almost here\.\s*$', '', content, flags=re.IGNORECASE).rstrip()
+    content = content + "\n\nPromised vs checked. Almost here."
     return content
 
 def send_to_telegram(text):
