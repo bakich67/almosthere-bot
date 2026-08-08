@@ -26,15 +26,14 @@ def pin_message():
         print(f"Pin error: {r.text}")
 
 def get_weekday_topic():
-    """Определяет тему дня по дню недели (UTC)."""
-    weekday = datetime.utcnow().weekday()  # 0 = понедельник
-    if weekday in [0, 2, 4]:  # Пн, Ср, Пт
+    weekday = datetime.utcnow().weekday()
+    if weekday in [0, 2, 4]:
         return "tech"
-    elif weekday in [1, 3]:   # Вт, Чт
+    elif weekday in [1, 3]:
         return "science"
-    elif weekday == 5:        # Сб
+    elif weekday == 5:
         return "movies"
-    else:                     # Вс – worst promises of the week
+    else:
         return "weekly"
 
 def parse_rss():
@@ -81,6 +80,30 @@ def parse_rss():
             print(f"Failed to parse {source['name']}: {e}")
     return all_news
 
+def find_related_pair(news_list):
+    """Ищет две новости с максимальным пересечением ключевых слов."""
+    stop_words = {"the", "a", "an", "is", "in", "to", "of", "for", "and", "on", "at", "with", "by", "from", "its", "it", "this", "that", "was", "are", "has", "have", "new", "how", "what", "why", "after", "before", "over", "into", "about"}
+    
+    def get_keywords(title):
+        words = re.findall(r'\b[a-z]{3,}\b', title.lower())
+        return set(w for w in words if w not in stop_words)
+    
+    best_pair = None
+    best_score = 0
+    
+    for i in range(len(news_list)):
+        for j in range(i+1, len(news_list)):
+            kw1 = get_keywords(news_list[i]["title"])
+            kw2 = get_keywords(news_list[j]["title"])
+            common = len(kw1 & kw2)
+            if common > best_score:
+                best_score = common
+                best_pair = (news_list[i], news_list[j])
+    
+    if best_score >= 2:
+        return list(best_pair)
+    return None
+
 def generate_post(topic, news_list):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -88,19 +111,23 @@ def generate_post(topic, news_list):
         "Content-Type": "application/json"
     }
 
-    if news_list and len(news_list) >= 2:
-        selected = random.sample(news_list, min(2, len(news_list)))
+    # Пытаемся найти пару связанных новостей
+    pair = find_related_pair(news_list)
+    if pair:
+        item1, item2 = pair
         context = (
-            f"Source 1: {selected[0]['title']} – {selected[0]['source']} ({selected[0]['link']})\n"
-            f"Source 2: {selected[1]['title']} – {selected[1]['source']} ({selected[1]['link']})\n"
-            f"Compare their coverage and identify any contradictions or differences in their reporting."
+            f"Source 1: {item1['title']} – {item1['source']} ({item1['link']})\n"
+            f"Source 2: {item2['title']} – {item2['source']} ({item2['link']})\n"
+            f"Compare their coverage and identify any contradictions or differences."
         )
-    elif news_list:
-        item = news_list[0]
-        context = f"Only one source available: {item['title']} – {item['source']} ({item['link']})"
+        sources_str = f"[{item1['source']}]({item1['link']}), [{item2['source']}]({item2['link']})"
     else:
-        print("No news found for topic.")
-        return None
+        # Берем одну случайную новость
+        item = random.choice(news_list) if news_list else None
+        if not item:
+            return None
+        context = f"Only one source available: {item['title']} – {item['source']} ({item['link']})"
+        sources_str = f"[{item['source']}]({item['link']})"
 
     if topic == "weekly":
         system_prompt = f"""You are '@AlmostHereEN'.
@@ -110,19 +137,19 @@ Format EXACTLY:
 📝 Promised: [what was promised]
 🧪 Got: [what actually happened]
 Verdict: ❌ (or ✅ / ⚠️)
-🔗 Sources: [link1], [link2]
+🔗 Sources: {sources_str}
 No jokes. No call to action. Just the facts.
 End with: Promised vs checked. Almost here."""
     else:
         system_prompt = f"""You are '@AlmostHereEN'.
 {context}
-Write a post (600–900 chars) about a recent event in {topic}.
+Write a post (600–900 chars) about this event.
 Find a story that flew UNDER THE RADAR – not the top headline, but something with low media coverage and a clear gap between promise and reality.
 Format EXACTLY:
 📝 Promised: [what was promised]
 🧪 Got: [what actually happened]
 Verdict: ✅ (if delivered) / ⚠️ (if partially) / ❌ (if failed)
-🔗 Sources: [link1], [link2]
+🔗 Sources: {sources_str}
 No jokes. No 'Witty observation'. No calls to action. Just the facts.
 End with: Promised vs checked. Almost here."""
 
@@ -144,7 +171,6 @@ End with: Promised vs checked. Almost here."""
     if not content or len(content) < 50:
         return None
 
-    # Проверяем, что подпись на месте
     if not content.endswith("Almost here."):
         content = content.rstrip() + "\n\nPromised vs checked. Almost here."
 
@@ -168,11 +194,10 @@ if __name__ == "__main__":
         topic = get_weekday_topic()
         print(f"Topic for today ({datetime.utcnow().strftime('%A')}): {topic}")
         all_news = parse_rss()
-        # Фильтруем по теме (кроме воскресенья)
         if topic != "weekly":
             filtered = [n for n in all_news if n.get("topic") == topic]
             if not filtered:
-                filtered = all_news  # fallback
+                filtered = all_news
         else:
             filtered = all_news
         print(f"Found {len(filtered)} relevant news items.")
