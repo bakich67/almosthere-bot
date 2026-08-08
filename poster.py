@@ -3,32 +3,15 @@ import requests
 import json
 import random
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
+from dateutil import parser
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
-CALL_TO_ACTIONS_BEFORE = [
-    "Will it live up to the hype? Check back soon.",
-    "What do you think — overpromised or underdelivered?",
-    "Would you buy this? Comment below.",
-    "Send this to someone who's waiting for it.",
-    "Subscribe so you don't miss the follow-up.",
-    "Want more previews like this? Like and share."
-]
-
-CALL_TO_ACTIONS_AFTER = [
-    "Did it live up to the hype? Comment your thoughts.",
-    "Was it worth the wait?",
-    "Did you expect more? Tell us below.",
-    "Share this with someone who was waiting too.",
-    "Want more reality checks? Subscribe.",
-    "Like if you were surprised. Share if you weren't."
-]
-
-PINNED_MESSAGE = "We don't just repost news. We compare what was promised vs what actually happened. Tech, science, movies. Daily."
+PINNED_MESSAGE = "We compare what was promised vs what actually happened. Tech, science, movies. Daily at 18:00 MSK. Mon/Wed/Fri Tech, Tue/Thu Science, Sat Movies."
 
 def pin_message():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -42,6 +25,18 @@ def pin_message():
     else:
         print(f"Pin error: {r.text}")
 
+def get_weekday_topic():
+    """Определяет тему дня по дню недели (UTC)."""
+    weekday = datetime.utcnow().weekday()  # 0 = понедельник
+    if weekday in [0, 2, 4]:  # Пн, Ср, Пт
+        return "tech"
+    elif weekday in [1, 3]:   # Вт, Чт
+        return "science"
+    elif weekday == 5:        # Сб
+        return "movies"
+    else:                     # Вс – worst promises of the week
+        return "weekly"
+
 def parse_rss():
     try:
         with open("rss_sources.json", "r") as f:
@@ -51,6 +46,8 @@ def parse_rss():
         return []
 
     all_news = []
+    cutoff_date = datetime.utcnow() - timedelta(days=1)
+
     for source in sources:
         try:
             resp = requests.get(source["url"], timeout=10)
@@ -60,95 +57,82 @@ def parse_rss():
                 link = item.find("link").text if item.find("link") is not None else ""
                 desc_elem = item.find("description")
                 desc = desc_elem.text if desc_elem is not None and desc_elem.text is not None else ""
-                pub_date = item.find("pubDate").text if item.find("pubDate") is not None else ""
-                all_news.append({
-                    "title": title,
-                    "link": link,
-                    "description": desc,
-                    "pub_date": pub_date,
-                    "source": source["name"],
-                    "topic": source["topic"]
-                })
+
+                pub_date_str = item.find("pubDate").text if item.find("pubDate") is not None else ""
+                if not pub_date_str:
+                    dc_date = item.find("{http://purl.org/dc/elements/1.1/}date")
+                    if dc_date is not None:
+                        pub_date_str = dc_date.text
+
+                if pub_date_str:
+                    try:
+                        pub_date = parser.parse(pub_date_str).replace(tzinfo=None)
+                        if pub_date >= cutoff_date:
+                            all_news.append({
+                                "title": title,
+                                "link": link,
+                                "description": desc,
+                                "source": source["name"],
+                                "topic": source["topic"]
+                            })
+                    except:
+                        continue
         except Exception as e:
             print(f"Failed to parse {source['name']}: {e}")
     return all_news
 
-def filter_events(news_list, post_type):
-    today = datetime.utcnow()
-    filtered = []
-    for item in news_list:
-        try:
-            pub_date = datetime.strptime(item["pub_date"], "%a, %d %b %Y %H:%M:%S %z")
-            pub_date = pub_date.replace(tzinfo=None)
-            days_diff = (pub_date - today).days
-            if post_type == "before" and 3 <= days_diff <= 7:
-                filtered.append(item)
-            elif post_type == "after" and -2 <= days_diff <= 0:
-                filtered.append(item)
-        except:
-            continue
-    return filtered
-
-def get_post_type():
-    today = datetime.utcnow()
-    return "before" if today.day % 2 == 0 else "after"
-
-def generate_post(post_type, real_news=None):
+def generate_post(topic, news_list):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    if real_news and len(real_news) > 0:
-        news_text = random.choice(real_news)
-        real_context = f"Real news item: {news_text['title']}. Source: {news_text['source']}. Link: {news_text['link']}. Description: {news_text['description'][:300]}"
+    if news_list and len(news_list) >= 2:
+        selected = random.sample(news_list, min(2, len(news_list)))
+        context = (
+            f"Source 1: {selected[0]['title']} – {selected[0]['source']} ({selected[0]['link']})\n"
+            f"Source 2: {selected[1]['title']} – {selected[1]['source']} ({selected[1]['link']})\n"
+            f"Compare their coverage and identify any contradictions or differences in their reporting."
+        )
+    elif news_list:
+        item = news_list[0]
+        context = f"Only one source available: {item['title']} – {item['source']} ({item['link']})"
     else:
-        real_context = "No real news found from RSS. Do NOT invent. Return 'No suitable event.'"
+        print("No news found for topic.")
+        return None
 
-    if post_type == "before":
-        cta = random.choice(CALL_TO_ACTIONS_BEFORE)
-        system_prompt = f"""You are the editor of '@AlmostHereEN'.
-{real_context}
-Write a punchy preview post (600–900 chars) about this upcoming event.
-Rules:
-- Topics ONLY: tech, science, movies.
-- Style: smart friend telling you what to watch for. No hype.
-- Structure: opening line → what is promised and why it matters → witty image → source → ONE call to action: «{cta}» → signature: «We'll check. Almost here.»
-- English only."""
+    if topic == "weekly":
+        system_prompt = f"""You are '@AlmostHereEN'.
+{context}
+Write a weekly roundup post (800–1000 chars) about the WORST promises of the week in tech, science, and movies.
+Format EXACTLY:
+📝 Promised: [what was promised]
+🧪 Got: [what actually happened]
+Verdict: ❌ (or ✅ / ⚠️)
+🔗 Sources: [link1], [link2]
+No jokes. No call to action. Just the facts.
+End with: Promised vs checked. Almost here."""
     else:
-        cta = random.choice(CALL_TO_ACTIONS_AFTER)
-        system_prompt = f"""You are the editor of '@AlmostHereEN'.
-{real_context}
-Write a reality-check post (600–900 chars) about this recent event. Use this EXACT format:
-
-Promised: [what was promised, one sharp sentence]
-Got: [what actually happened, one sharp sentence]
-Verdict: [Justified / Flop / Unclear] – [short, punchy advice like 'wait for next gen', 'buy now', 'ignore completely', 'worth a look']
-Witty observation: [one ironic or vivid comparison]
-
-Example:
-Promised: a revolutionary electric pickup that changes the game.
-Got: an overpriced, unfinished product that underwhelmed.
-Verdict: Flop – wait for the next generation.
-Witty observation: The revolution will have to wait for a software update.
-Source: TechCrunch
-{cta}
-
-Promised vs checked. Almost here.
-
-Rules:
-- Topics ONLY: tech, science, movies.
-- Be honest, harsh if needed, no hype.
-- English only."""
+        system_prompt = f"""You are '@AlmostHereEN'.
+{context}
+Write a post (600–900 chars) about a recent event in {topic}.
+Find a story that flew UNDER THE RADAR – not the top headline, but something with low media coverage and a clear gap between promise and reality.
+Format EXACTLY:
+📝 Promised: [what was promised]
+🧪 Got: [what actually happened]
+Verdict: ✅ (if delivered) / ⚠️ (if partially) / ❌ (if failed)
+🔗 Sources: [link1], [link2]
+No jokes. No 'Witty observation'. No calls to action. Just the facts.
+End with: Promised vs checked. Almost here."""
 
     data = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "Write the post based on the provided news item."}
+            {"role": "user", "content": "Write the post."}
         ],
-        "temperature": 0.5,
+        "temperature": 0.4,
         "max_tokens": 1000
     }
 
@@ -157,16 +141,12 @@ Rules:
         raise Exception(f"Groq error: {response.text}")
     content = response.json()["choices"][0]["message"]["content"].strip()
 
-    if not content or len(content) < 50 or "no suitable" in content.lower():
-        print("No suitable post generated.")
+    if not content or len(content) < 50:
         return None
 
-    if post_type == "before":
-        if not content.endswith("Almost here."):
-            content = content.rstrip() + "\n\nWe'll check. Almost here."
-    else:
-        if not content.endswith("Almost here."):
-            content = content.rstrip() + "\n\nPromised vs checked. Almost here."
+    # Проверяем, что подпись на месте
+    if not content.endswith("Almost here."):
+        content = content.rstrip() + "\n\nPromised vs checked. Almost here."
 
     return content
 
@@ -185,14 +165,20 @@ def send_to_telegram(text):
 if __name__ == "__main__":
     try:
         pin_message()
+        topic = get_weekday_topic()
+        print(f"Topic for today ({datetime.utcnow().strftime('%A')}): {topic}")
         all_news = parse_rss()
-        post_type = get_post_type()
-        print(f"Post type: {post_type}")
-        real_events = filter_events(all_news, post_type)
-        print(f"Found {len(real_events)} real events from RSS.")
-        post = generate_post(post_type, real_events)
+        # Фильтруем по теме (кроме воскресенья)
+        if topic != "weekly":
+            filtered = [n for n in all_news if n.get("topic") == topic]
+            if not filtered:
+                filtered = all_news  # fallback
+        else:
+            filtered = all_news
+        print(f"Found {len(filtered)} relevant news items.")
+        post = generate_post(topic, filtered)
         if post is None:
-            print("No post published.")
+            print("No post generated.")
         else:
             print("Generated post:\n", post)
             send_to_telegram(post)
