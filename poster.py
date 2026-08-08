@@ -171,7 +171,10 @@ End with: Promised vs checked. Almost here."""
     if not content or len(content) < 50:
         return None
 
-    if not content.endswith("Almost here."):
+    # Обрезаем всё, что после финальной подписи
+    if "Almost here." in content:
+        content = content.split("Almost here.")[0].rstrip() + "\n\nPromised vs checked. Almost here."
+    else:
         content = content.rstrip() + "\n\nPromised vs checked. Almost here."
 
     return content
