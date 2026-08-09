@@ -18,8 +18,11 @@ USED_LINKS_FILE = "used_links.json"
 def load_used_links():
     try:
         with open(USED_LINKS_FILE, "r") as f:
-            return set(json.load(f))
+            links = set(json.load(f))
+            print(f"Loaded {len(links)} used links from history.")
+            return links
     except:
+        print("No used links history found. Starting fresh.")
         return set()
 
 def save_used_links(links):
@@ -126,12 +129,11 @@ def generate_post(topic, news_list):
         "Content-Type": "application/json"
     }
 
-    # Исключаем уже использованные ссылки
     used_links = load_used_links()
     fresh_news = [n for n in news_list if clean_link(n["link"]) not in used_links]
     if not fresh_news:
         print("All news already used. Post skipped.")
-        return None
+        return None, None
 
     pair = find_related_pair(fresh_news)
     if pair:
@@ -149,41 +151,39 @@ def generate_post(topic, news_list):
         sources_str = f"[{item['source']}]({item['link']})"
         used_links.add(clean_link(item["link"]))
 
-    # Сохраняем обновлённый список
     save_used_links(used_links)
 
     if topic == "weekly":
         system_prompt = f"""You are '@AlmostHereEN'.
 {context}
-Write a weekly roundup post (800–1000 chars) about the WORST promises of the week in tech, science, and movies.
-Format EXACTLY:
-📝 Promised: [what was promised]
-🧪 Got: [what actually happened]
-Verdict: ❌ (or ✅ / ⚠️)
+Write a weekly roundup post (800–1000 chars) about the WORST promises of the week.
+Format EXACTLY – ONE event only:
+📝 Promised: [one sentence]
+🧪 Got: [one sentence]
+Verdict: ❌
 🔗 Sources: {sources_str}
-No jokes. No call to action. Just the facts.
+No jokes. No multiple blocks. Just the facts.
 End with: Promised vs checked. Almost here."""
     else:
         system_prompt = f"""You are '@AlmostHereEN'.
 {context}
-Write a post (600–900 chars) about this event.
-Find a story that flew UNDER THE RADAR – not the top headline, but something with low media coverage and a clear gap between promise and reality.
-Format EXACTLY:
+Write a post (600–900 chars) about ONE event. Choose the most important or surprising one.
+Format EXACTLY – ONE block:
 📝 Promised: [what was promised]
 🧪 Got: [what actually happened]
-Verdict: ✅ (if delivered) / ⚠️ (if partially) / ❌ (if failed)
+Verdict: ✅ / ⚠️ / ❌
 🔗 Sources: {sources_str}
-No jokes. No 'Witty observation'. No calls to action. Just the facts.
+No jokes. No 'Witty observation'. No calls to action. No multiple Promised/Got blocks. Just ONE.
 End with: Promised vs checked. Almost here."""
 
     data = {
         "model": "llama-3.1-8b-instant",
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "Write the post."}
+            {"role": "user", "content": "Write the post about ONE event only."}
         ],
-        "temperature": 0.4,
-        "max_tokens": 1000
+        "temperature": 0.3,
+        "max_tokens": 800
     }
 
     response = requests.post(url, headers=headers, json=data)
@@ -192,11 +192,14 @@ End with: Promised vs checked. Almost here."""
     content = response.json()["choices"][0]["message"]["content"].strip()
 
     if not content or len(content) < 50:
-        return None
+        return None, used_links
+
+    # Remove any extra blocks after the first "Promised vs checked" signature
+    content = re.split(r'(?<=Almost here\.)\s*(?=📝)', content)[0]
 
     content = re.sub(r'\n*(Promised vs checked\.\s*)?Almost here\.\s*$', '', content, flags=re.IGNORECASE).rstrip()
     content = content + "\n\nPromised vs checked. Almost here."
-    return content
+    return content, used_links
 
 def send_to_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -223,7 +226,7 @@ if __name__ == "__main__":
         else:
             filtered = all_news
         print(f"Found {len(filtered)} relevant news items.")
-        post = generate_post(topic, filtered)
+        post, _ = generate_post(topic, filtered)
         if post is None:
             print("No post generated.")
         else:
