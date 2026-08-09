@@ -13,6 +13,22 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 PINNED_MESSAGE = "We compare what was promised vs what actually happened. Tech, science, movies. Daily at 18:00 MSK. Mon/Wed/Fri Tech, Tue/Thu Science, Sat Movies."
 
+USED_LINKS_FILE = "used_links.json"
+
+def load_used_links():
+    try:
+        with open(USED_LINKS_FILE, "r") as f:
+            return set(json.load(f))
+    except:
+        return set()
+
+def save_used_links(links):
+    with open(USED_LINKS_FILE, "w") as f:
+        json.dump(list(links), f)
+
+def clean_link(link):
+    return link.split('?')[0]
+
 def pin_message():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHANNEL_ID, "text": PINNED_MESSAGE}
@@ -81,7 +97,6 @@ def parse_rss():
     return all_news
 
 def find_related_pair(news_list):
-    """Ищет две новости с максимальным пересечением ключевых слов."""
     stop_words = {"the", "a", "an", "is", "in", "to", "of", "for", "and", "on", "at", "with", "by", "from", "its", "it", "this", "that", "was", "are", "has", "have", "new", "how", "what", "why", "after", "before", "over", "into", "about"}
     
     def get_keywords(title):
@@ -111,8 +126,14 @@ def generate_post(topic, news_list):
         "Content-Type": "application/json"
     }
 
-    # Пытаемся найти пару связанных новостей
-    pair = find_related_pair(news_list)
+    # Исключаем уже использованные ссылки
+    used_links = load_used_links()
+    fresh_news = [n for n in news_list if clean_link(n["link"]) not in used_links]
+    if not fresh_news:
+        print("All news already used. Post skipped.")
+        return None
+
+    pair = find_related_pair(fresh_news)
     if pair:
         item1, item2 = pair
         context = (
@@ -121,13 +142,15 @@ def generate_post(topic, news_list):
             f"Compare their coverage and identify any contradictions or differences."
         )
         sources_str = f"[{item1['source']}]({item1['link']}), [{item2['source']}]({item2['link']})"
+        used_links.update([clean_link(item1["link"]), clean_link(item2["link"])])
     else:
-        # Берем одну случайную новость
-        item = random.choice(news_list) if news_list else None
-        if not item:
-            return None
+        item = random.choice(fresh_news)
         context = f"Only one source available: {item['title']} – {item['source']} ({item['link']})"
         sources_str = f"[{item['source']}]({item['link']})"
+        used_links.add(clean_link(item["link"]))
+
+    # Сохраняем обновлённый список
+    save_used_links(used_links)
 
     if topic == "weekly":
         system_prompt = f"""You are '@AlmostHereEN'.
@@ -171,7 +194,6 @@ End with: Promised vs checked. Almost here."""
     if not content or len(content) < 50:
         return None
 
-    # Удаляем любые вариации конечной подписи, чтобы не задваивать
     content = re.sub(r'\n*(Promised vs checked\.\s*)?Almost here\.\s*$', '', content, flags=re.IGNORECASE).rstrip()
     content = content + "\n\nPromised vs checked. Almost here."
     return content
