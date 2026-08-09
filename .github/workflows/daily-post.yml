@@ -1,7 +1,5 @@
 name: Daily Post to AlmostHereEN
 
-name: Daily Post to AlmostHereEN
-
 on:
   schedule:
     - cron: '0 15 * * *'
@@ -14,19 +12,14 @@ concurrency:
 jobs:
   post:
     runs-on: ubuntu-latest
-    ...
-
-jobs:
-  post:
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install dependencies
+      - name: Установка зависимостей
         run: pip install requests lxml python-dateutil
-      - name: Run script
+      - name: Запуск скрипта
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
