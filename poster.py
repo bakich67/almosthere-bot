@@ -12,9 +12,9 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 PINNED_MESSAGE = "We compare what was promised vs what actually happened. Tech, science, movies. Daily at 18:00 MSK. Mon/Wed/Fri Tech, Tue/Thu Science, Sat Movies."
-
 USED_LINKS_FILE = "used_links.json"
 
+# ---------- ФУНКЦИИ ИСТОРИИ ----------
 def load_used_links():
     try:
         with open(USED_LINKS_FILE, "r") as f:
@@ -55,6 +55,7 @@ def get_weekday_topic():
     else:
         return "weekly"
 
+# ---------- ПАРСИНГ RSS ----------
 def parse_rss():
     try:
         with open("rss_sources.json", "r") as f:
@@ -100,15 +101,12 @@ def parse_rss():
     return all_news
 
 def find_related_pair(news_list):
-    stop_words = {"the", "a", "an", "is", "in", "to", "of", "for", "and", "on", "at", "with", "by", "from", "its", "it", "this", "that", "was", "are", "has", "have", "new", "how", "what", "why", "after", "before", "over", "into", "about"}
-    
+    stop_words = {"the","a","an","is","in","to","of","for","and","on","at","with","by","from","its","it","this","that","was","are","has","have","new","how","what","why","after","before","over","into","about"}
     def get_keywords(title):
         words = re.findall(r'\b[a-z]{3,}\b', title.lower())
         return set(w for w in words if w not in stop_words)
-    
     best_pair = None
     best_score = 0
-    
     for i in range(len(news_list)):
         for j in range(i+1, len(news_list)):
             kw1 = get_keywords(news_list[i]["title"])
@@ -117,11 +115,11 @@ def find_related_pair(news_list):
             if common > best_score:
                 best_score = common
                 best_pair = (news_list[i], news_list[j])
-    
     if best_score >= 2:
         return list(best_pair)
     return None
 
+# ---------- ГЕНЕРАЦИЯ ПОСТА ----------
 def generate_post(topic, news_list):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -133,7 +131,7 @@ def generate_post(topic, news_list):
     fresh_news = [n for n in news_list if clean_link(n["link"]) not in used_links]
     if not fresh_news:
         print("All news already used. Post skipped.")
-        return None, None
+        return None, used_links
 
     pair = find_related_pair(fresh_news)
     if pair:
@@ -153,19 +151,7 @@ def generate_post(topic, news_list):
 
     save_used_links(used_links)
 
-    if topic == "weekly":
-        system_prompt = f"""You are '@AlmostHereEN'.
-{context}
-Write a weekly roundup post (800–1000 chars) about the WORST promises of the week.
-Format EXACTLY – ONE event only:
-📝 Promised: [one sentence]
-🧪 Got: [one sentence]
-Verdict: ❌
-🔗 Sources: {sources_str}
-No jokes. No multiple blocks. Just the facts.
-End with: Promised vs checked. Almost here."""
-    else:
-        system_prompt = f"""You are '@AlmostHereEN'.
+    system_prompt = f"""You are '@AlmostHereEN'.
 {context}
 Write a post (600–900 chars) about ONE event. Choose the most important or surprising one.
 Format EXACTLY – ONE block:
@@ -177,7 +163,7 @@ No jokes. No 'Witty observation'. No calls to action. No multiple Promised/Got b
 End with: Promised vs checked. Almost here."""
 
     data = {
-       "llama-3.1-70b-versatile",
+        "model": "llama-3.1-70b-versatile",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "Write the post about ONE event only."}
@@ -194,9 +180,8 @@ End with: Promised vs checked. Almost here."""
     if not content or len(content) < 50:
         return None, used_links
 
-    # Remove any extra blocks after the first "Promised vs checked" signature
+    # Убираем повторяющиеся подписи и лишние блоки
     content = re.split(r'(?<=Almost here\.)\s*(?=📝)', content)[0]
-
     content = re.sub(r'\n*(Promised vs checked\.\s*)?Almost here\.\s*$', '', content, flags=re.IGNORECASE).rstrip()
     content = content + "\n\nPromised vs checked. Almost here."
     return content, used_links
