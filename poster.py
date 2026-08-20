@@ -177,7 +177,7 @@ No jokes. No 'Witty observation'. No calls to action. No multiple Promised/Got b
 End with: Promised vs checked. Almost here."""
 
     data = {
-        GROQ_MODEL = "llama-3.1-70b-versatile",
+       "llama-3.1-70b-versatile",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "Write the post about ONE event only."}
