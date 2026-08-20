@@ -11,7 +11,7 @@ BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
-GROQ_MODEL = "openai/gpt-oss-20b"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 PINNED_MESSAGE = "We compare what was promised vs what actually happened. Tech, science, movies. Daily at 18:00 MSK. Mon/Wed/Fri Tech, Tue/Thu Science, Sat Movies."
 
@@ -100,14 +100,14 @@ def parse_rss():
 
 def find_related_pair(news_list):
     stop_words = {"the", "a", "an", "is", "in", "to", "of", "for", "and", "on", "at", "with", "by", "from", "its", "it", "this", "that", "was", "are", "has", "have", "new", "how", "what", "why", "after", "before", "over", "into", "about"}
-    
+
     def get_keywords(title):
         words = re.findall(r'\b[a-z]{3,}\b', title.lower())
         return set(w for w in words if w not in stop_words)
-    
+
     best_pair = None
     best_score = 0
-    
+
     for i in range(len(news_list)):
         for j in range(i+1, len(news_list)):
             kw1 = get_keywords(news_list[i]["title"])
@@ -116,7 +116,7 @@ def find_related_pair(news_list):
             if common > best_score:
                 best_score = common
                 best_pair = (news_list[i], news_list[j])
-    
+
     if best_score >= 2:
         return list(best_pair)
     return None
@@ -164,7 +164,7 @@ No jokes. No 'Witty observation'. No calls to action. No multiple Promised/Got b
 End with: Promised vs checked. Almost here."""
 
     data = {
-        GROQ_MODEL = "openai/gpt-oss-120b",
+        "model": GROQ_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "Write the post about ONE event only."}
@@ -179,6 +179,7 @@ End with: Promised vs checked. Almost here."""
     content = response.json()["choices"][0]["message"]["content"].strip()
 
     if not content or len(content) < 50:
+        print("Пустой ответ от Groq.")
         return None, used_links
 
     content = re.split(r'(?<=Almost here\.)\s*(?=📝)', content)[0]
