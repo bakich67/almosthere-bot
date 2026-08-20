@@ -164,7 +164,7 @@ No jokes. No 'Witty observation'. No calls to action. No multiple Promised/Got b
 End with: Promised vs checked. Almost here."""
 
     data = {
-        "model": GROQ_MODEL,
+        GROQ_MODEL = "openai/gpt-oss-120b",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "Write the post about ONE event only."}
