@@ -1,4 +1,5 @@
 import os
+import html
 import requests
 import json
 import random
@@ -12,8 +13,6 @@ CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 GROQ_MODEL = "openai/gpt-oss-120b"
-
-PINNED_MESSAGE = "We compare what was promised vs what actually happened. Tech, science, movies. Daily at 18:00 MSK. Mon/Wed/Fri Tech, Tue/Thu Science, Sat Movies."
 
 USED_LINKS_FILE = "used_links.json"
 
@@ -31,17 +30,14 @@ def save_used_links(links):
 def clean_link(link):
     return link.split('?')[0]
 
-def pin_message():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHANNEL_ID, "text": PINNED_MESSAGE}
-    r = requests.post(url, json=payload)
-    if r.status_code == 200:
-        msg_id = r.json()["result"]["message_id"]
-        pin_url = f"https://api.telegram.org/bot{BOT_TOKEN}/pinChatMessage"
-        requests.post(pin_url, json={"chat_id": CHANNEL_ID, "message_id": msg_id})
-        print("Pinned message updated.")
-    else:
-        print(f"Pin error: {r.text}")
+def clean_text(text, limit=700):
+    text = re.sub(r'<[^>]+>', ' ', text or "")
+    text = html.unescape(text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:limit]
+
+def link_html(item):
+    return f'<a href="{html.escape(item["link"], quote=True)}">{html.escape(item["source"])}</a>'
 
 def get_weekday_topic():
     weekday = datetime.utcnow().weekday()
@@ -88,7 +84,7 @@ def parse_rss():
                             all_news.append({
                                 "title": title,
                                 "link": link,
-                                "description": desc,
+                                "description": clean_text(desc),
                                 "source": source["name"],
                                 "topic": source["topic"]
                             })
@@ -138,29 +134,31 @@ def generate_post(topic, news_list):
     if pair:
         item1, item2 = pair
         context = (
-            f"Source 1: {item1['title']} – {item1['source']} ({item1['link']})\n"
-            f"Source 2: {item2['title']} – {item2['source']} ({item2['link']})\n"
-            f"Compare their coverage and identify any contradictions or differences."
+            f"Source 1 ({item1['source']}): {item1['title']}\n{item1['description']}\n\n"
+            f"Source 2 ({item2['source']}): {item2['title']}\n{item2['description']}\n\n"
+            f"Compare the two sources. Report a contradiction or difference ONLY if it is visible in the text above."
         )
-        sources_str = f"[{item1['source']}]({item1['link']}), [{item2['source']}]({item2['link']})"
+        sources_str = f"{link_html(item1)}, {link_html(item2)}"
         used_links.update([clean_link(item1["link"]), clean_link(item2["link"])])
     else:
         item = random.choice(fresh_news)
-        context = f"Only one source available: {item['title']} – {item['source']} ({item['link']})"
-        sources_str = f"[{item['source']}]({item['link']})"
+        context = f"Only one source ({item['source']}): {item['title']}\n{item['description']}"
+        sources_str = link_html(item)
         used_links.add(clean_link(item["link"]))
 
     save_used_links(used_links)
 
-    system_prompt = f"""You are '@AlmostHereEN'.
+    system_prompt = f"""You are '@AlmostHereEN', a channel that checks promises against outcomes.
+Use ONLY the facts in the source material below. Do not add numbers, prices, dates, names, versions or specs that are not in that text.
+
 {context}
-Write a post (600–900 chars) about ONE event. Choose the most important or surprising one.
-Format EXACTLY – ONE block:
-📝 Promised: [what was promised]
-🧪 Got: [what actually happened]
-Verdict: ✅ / ⚠️ / ❌
-🔗 Sources: {sources_str}
-No jokes. No 'Witty observation'. No calls to action. No multiple Promised/Got blocks. Just ONE.
+
+Write a post (500-800 chars) about ONE event. Choose the most important or surprising one.
+Format EXACTLY, ONE block:
+📝 Promised: [what the source says was announced, planned or claimed]
+🧪 Got: [what actually happened, ONLY if a source reports the outcome. If the sources only announce or preview the event, write exactly: Not yet confirmed. The sources only report the announcement.]
+Verdict: ✅ outcome reported and matches the promise / ⚠️ sources contradict each other or the outcome differs / ❌ promise clearly failed / ⏳ outcome not yet confirmed
+No sources line. No jokes. No calls to action. No multiple blocks.
 End with: Promised vs checked. Almost here."""
 
     data = {
@@ -169,8 +167,8 @@ End with: Promised vs checked. Almost here."""
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "Write the post about ONE event only."}
         ],
-        "temperature": 0.3,
-        "max_tokens": 800
+        "temperature": 0.2,
+        "max_tokens": 1500
     }
 
     response = requests.post(url, headers=headers, json=data)
@@ -184,7 +182,9 @@ End with: Promised vs checked. Almost here."""
 
     content = re.split(r'(?<=Almost here\.)\s*(?=📝)', content)[0]
     content = re.sub(r'\n*(Promised vs checked\.\s*)?Almost here\.\s*$', '', content, flags=re.IGNORECASE).rstrip()
-    content = content + "\n\nPromised vs checked. Almost here."
+    content = re.sub(r'\n*🔗.*$', '', content, flags=re.DOTALL).rstrip()
+    content = html.escape(content, quote=False)
+    content = f"{content}\n🔗 Sources: {sources_str}\n\nPromised vs checked. Almost here."
     return content, used_links
 
 def send_to_telegram(text):
@@ -201,7 +201,6 @@ def send_to_telegram(text):
 
 if __name__ == "__main__":
     try:
-        pin_message()
         topic = get_weekday_topic()
         print(f"Topic for today ({datetime.utcnow().strftime('%A')}): {topic}")
         all_news = parse_rss()
