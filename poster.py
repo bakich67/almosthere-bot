@@ -183,6 +183,7 @@ End with: Promised vs checked. Almost here."""
     content = re.split(r'(?<=Almost here\.)\s*(?=📝)', content)[0]
     content = re.sub(r'\n*(Promised vs checked\.\s*)?Almost here\.\s*$', '', content, flags=re.IGNORECASE).rstrip()
     content = re.sub(r'\n*🔗.*$', '', content, flags=re.DOTALL).rstrip()
+    content = re.sub(r'(Verdict:\s*(?:[✅❌⏳]|⚠\ufe0f?)).*', r'\1', content)
     content = html.escape(content, quote=False)
     content = f"{content}\n🔗 Sources: {sources_str}\n\nPromised vs checked. Almost here."
     return content, used_links
